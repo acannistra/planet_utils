@@ -36,7 +36,7 @@ class WholeDownload(object):
 
     def _request_and_download_image(self, id):
         print("Starting activation for image {img}".format(img=id))
-        
+
 
         @retry(wait_fixed=5000,stop_max_delay=600000)
         def _start_op():
@@ -44,20 +44,20 @@ class WholeDownload(object):
             r = requests.get(ACTIVATE_API_URL.format(atype=self.assettype, id=id),
                              auth=(PL_API_KEY, ""))
             print("fetching assets...status:{}".format(r.status_code))
-            
+
             r.raise_for_status()
             return(r)
-        
-        try:            
+
+        try:
             r = _start_op()
         except Exception as e:
             print(e)
             print("error starting asset activation operation")
             return("{loc} - error starting clip operation".format(loc=self.loc_id))
-        
+
         item_activation_url = r.json()[self.itemtype]["_links"]["activate"]
         requests.post(item_activation_url, auth = (PL_API_KEY, ""))
-       
+
         try:
             response = self._check_active(id)
         except Exception as e:
@@ -79,18 +79,18 @@ class WholeDownload(object):
                     if chunk:  # filter out keep-alive new chunks
                         f.write(chunk)
         # also get XML
-        r = requests.get(response[self.itemtype+"_xml"]['location'], auth=(PL_API_KEY, ""))
-        with open(local_xml_filename, 'wb') as f:
+        r = requests.get(response[self.itemtype+"_xml"]['location'], auth=(PL_API_KEY, ""), stream = True)
+        with smart_open(local_xml_filename, 'wb') as f:
             for chunk in r.iter_content(chunk_size=1024):
                 if chunk:  # filter out keep-alive new chunks
                     f.write(chunk)
-        
-        
+
+
         return (local_tif_filename, local_xml_filename)
-    
-        
-    
-    
+
+
+
+
     def run(self):
         pool = ThreadPool(self._threads)
         filenames = pool.map(self._request_and_download_image, self.image_ids)
@@ -119,7 +119,7 @@ class CroppedDownload(object):
         self.dest_dir = dest_dir
         self._threads = _threads
         self.aws_profile = None # used for smart_open
-        
+
     def _request_and_download_image(self, id):
         print("Starting download for image {img}".format(img=id))
         payload = {
@@ -137,14 +137,14 @@ class CroppedDownload(object):
             print("starting...{!s}".format(r.json()))
             r.raise_for_status()
             return(r)
-        
-        try:            
+
+        try:
             r = _start_op(payload)
         except Exception as e:
             print(e)
             print("error starting clip operation")
             return("{loc} - error starting clip operation".format(loc=self.loc_id))
-        
+
         try:
             response = self._check_clip_op(r.json()['id'])
         except Exception as e:
@@ -169,6 +169,3 @@ class CroppedDownload(object):
         pool = ThreadPool(self._threads)
         filenames = pool.map(self._request_and_download_image, self.image_ids)
         return(filenames)
-
-
-
