@@ -5,6 +5,7 @@ from retrying import retry
 from multiprocessing import Pool as ThreadPool
 import os
 from smart_open import smart_open
+from itertools import cycle
 
 CLIP_API_URL = "https://api.planet.com/compute/ops/clips/v1/"
 ACTIVATE_API_URL = "https://api.planet.com/data/v1/item-types/{atype}/items/{id}/assets/"
@@ -98,7 +99,7 @@ class WholeDownload(object):
 
 class CroppedDownload(object):
     """Downloads a set of cropped images for a given geometry."""
-    @retry(wait_fixed=5000, stop_max_delay = 600000) # try for 10 minutes, 5 second delay
+    @retry(wait_fixed=5000, stop_max_delay = 1000000) # try for 10 minutes, 5 second delay
     def _check_clip_op(self, id):
         r = requests.get(
             "{_base}/{id}".format(_base=CLIP_API_URL, id=id),
@@ -111,19 +112,28 @@ class CroppedDownload(object):
             print("response found.")
             return(r.json())
 
-    def __init__(self, loc_id, geometry, image_ids, dest_dir, _threads=5, aws_profile=None):
+    def __init__(self, loc_id, geometries, image_ids, dest_dir, _threads=5, aws_profile=None):
         super(CroppedDownload, self).__init__()
         self.loc_id = loc_id
-        self.geometry = geometry
+
+        # can be 1 geometry per image_id or 1 geometry for all image_ids
+        self.geometry = geometries
         self.image_ids = image_ids
+        if (isinstance(self.geometry, list)):
+            if (len(self.geometry) != len(self.image_ids)):
+                raise Exception("if list of geometries is provided it must be as the same length as image_ids")
+        else:
+            self.geometry = [geometries] # make into a list for parallel map
+
         self.dest_dir = dest_dir
         self._threads = _threads
         self.aws_profile = None # used for smart_open
 
-    def _request_and_download_image(self, id):
+    def _request_and_download_image(self, id, geometry):
         print("Starting download for image {img}".format(img=id))
+        print(type(geometry))
         payload = {
-            "aoi": mapping(self.geometry),
+            "aoi": mapping(geometry),
             "targets": [{
                 "item_id": id,
                 "item_type": "PSScene4Band",
@@ -167,5 +177,5 @@ class CroppedDownload(object):
 
     def run(self):
         pool = ThreadPool(self._threads)
-        filenames = pool.map(self._request_and_download_image, self.image_ids)
+        filenames = pool.starmap(self._request_and_download_image, zip(self.image_ids, cycle(self.geometry)))
         return(filenames)
