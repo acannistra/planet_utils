@@ -6,15 +6,17 @@ from shapely.geometry import mapping
 import json
 
 
+
+
 class Search(object):
     """Locates image IDs for geometries and
         corresponding dates.
-        One -> Many relationship between geometry 
-        and dates. 'id' field is key between them. 
+        One -> Many relationship between geometry
+        and dates. 'id' field is key between them.
     """
 
     def __init__(self, geometries, dates, dry=False, key="id",
-                 start_col="start_date", end_col="end_date", item_type = "PSScene4Band"):
+                 start_col="start_date", end_col="end_date", item_type = "PSScene4Band", quiet=False):
         super(Search, self).__init__()
         # initialize api
         self._client = api.ClientV1()
@@ -23,6 +25,7 @@ class Search(object):
         self.start_col = start_col
         self.end_col = end_col
         self.item_type = item_type
+        self.quiet = quiet
 
         # type-check and save members
         if(isinstance(geometries, gpd.GeoDataFrame)):
@@ -40,7 +43,8 @@ class Search(object):
         result = []
         for _, row in tqdm(_joined.iterrows(),
                            desc="Querying Planet API",
-                           unit="searches", total=len(_joined)):
+                           unit="searches", total=len(_joined),
+                           disable = self.quiet):
             if(self.dry):
                 print("Dry run, not executing search"
                       ". {id}:{start} - {end}".format(id=row[self.key],
@@ -56,8 +60,8 @@ class Search(object):
 
     def _exec(self, geom, date_start, date_end, _opt_str=None):
         """
-            Execute Planet API search. 
-                Geom is Polygon (shapely). 
+            Execute Planet API search.
+                Geom is Polygon (shapely).
                 Date_start/Date-end is DateTime
                 _opt_str is unused.
         """
@@ -76,4 +80,27 @@ class Search(object):
         request = api.filters.build_search_request(query, item_types)
         # this will cause an exception if there are any API related errors
         results = self._client.quick_search(request)
-        return(pd.read_json(json.dumps(json.loads(results.get_raw())['features'])))
+        return(pd.read_json(json.dumps(json.loads(results.get_raw())['features']), dtype = {'id': str})) # was inferring float64?
+
+class SimpleSearch(object):
+    """
+    Search Planet API and return image IDs for geometry and start/end dates.
+
+    Wraps main Search class (creates dataframes).
+
+    """
+
+    def __init__(self, geometry, start_date, end_date, dry=False, item_type = "PSScene4Band", quiet = False):
+        self.gdf = gpd.GeoDataFrame(geometry = [geometry])
+        self.gdf.crs = {'init' : 'epsg:4326'} # wgs84 lat/lon
+        self.gdf['_id'] = [0]
+
+        self.dates = pd.DataFrame()
+        self.dates['start_date'] = [start_date]
+        self.dates['end_date'] = [end_date]
+        self.dates['_id'] = [0]
+
+        self.searcher = Search(self.gdf, self.dates, dry=dry, item_type = item_type, quiet = quiet, key="_id")
+
+    def query(self):
+        return(self.searcher.query())
