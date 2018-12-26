@@ -120,16 +120,26 @@ class CroppedDownload(object):
         self._threads = _threads
         self.aws_profile = None # used for smart_open
 
-    def _request_and_download_image(self, id):
+    def _request_and_download_image(self, id, geometry):
         print("Starting download for image {img}".format(img=id))
         payload = {
-            "aoi": mapping(self.geometry),
+            "aoi": mapping(geometry),
             "targets": [{
                 "item_id": id,
                 "item_type": "PSScene4Band",
                 "asset_type": 'analytic'
             }]
         }
+
+        local_filename = os.path.join(
+            self.dest_dir, "{loc}_{img}.zip".format(loc=self.loc_id, img=id))
+
+        print(local_filename, os.path.isfile(local_filename))
+        if os.path.isfile(local_filename):
+            print(f"{local_filename} already exists, skipping!")
+            return(local_filename)
+
+
 
         @retry(wait_fixed=5000,stop_max_delay=600000)
         def _start_op(payload):
@@ -154,8 +164,6 @@ class CroppedDownload(object):
 
         image_url = response['_links']['results'][0]
 
-        local_filename = os.path.join(
-            self.dest_dir, "{loc}_{img}.zip".format(loc=self.loc_id, img=id))
 
         r = requests.get(image_url, stream=True, auth=(PL_API_KEY, ""))
 
@@ -167,5 +175,5 @@ class CroppedDownload(object):
 
     def run(self):
         pool = ThreadPool(self._threads)
-        filenames = pool.map(self._request_and_download_image, self.image_ids)
+        filenames = pool.starmap(self._request_and_download_image, zip(self.image_ids, self.geometry))
         return(filenames)
